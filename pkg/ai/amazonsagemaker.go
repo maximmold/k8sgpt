@@ -18,7 +18,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
-
+    "log"
 	"encoding/json"
 
 	"github.com/fatih/color"
@@ -41,14 +41,12 @@ type SageMakerAIClient struct {
 }
 
 type Generations []struct {
-	Generation struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	} `json:"generation"`
+    GeneratedText  string `json:"generated_text"`
 }
 
+
 type Request struct {
-	Inputs     [][]Message `json:"inputs"`
+	Inputs     string `json:"inputs"`
 	Parameters Parameters  `json:"parameters"`
 }
 
@@ -58,6 +56,8 @@ type Message struct {
 }
 
 type Parameters struct {
+	DoSample     bool    `json:"do_sample"`
+	Watermark    bool    `json:"watermark"`
 	MaxNewTokens int     `json:"max_new_tokens"`
 	TopP         float64 `json:"top_p"`
 	Temperature  float64 `json:"temperature"`
@@ -89,18 +89,18 @@ func (c *SageMakerAIClient) GetCompletion(ctx context.Context, prompt string, pr
 		promptTmpl = PromptMap["default"]
 	}
 
+// 100, .7 were originals from examples
+    log.Println(fmt.Printf("maxTokens: %s, %d, %f", prompt, c.maxTokens, c.temperature))
+
 	request := Request{
-		Inputs: [][]Message{
-			{
-				{Role: "system", Content: "DEFAULT_PROMPT"},
-				{Role: "user", Content: fmt.Sprintf(promptTmpl, c.language, prompt)},
-			},
-		},
+		Inputs: prompt,
 
 		Parameters: Parameters{
-			MaxNewTokens: int(c.maxTokens),
+		    DoSample:     true,
+			MaxNewTokens: int(250),
 			TopP:         float64(c.topP),
 			Temperature:  float64(c.temperature),
+			Watermark:    true,
 		},
 	}
 
@@ -120,26 +120,31 @@ func (c *SageMakerAIClient) GetCompletion(ctx context.Context, prompt string, pr
 	}
 
 	// Call the InvokeEndpoint function
+	log.Println("before")
 	result, err := c.client.InvokeEndpoint(input)
 	if err != nil {
 		return "", err
 	}
+	log.Println("after")
 
-	// // Define a slice of Generations
-	var generations Generations
+    // // Define a slice of Generations
+    var generations Generations
 
-	err = json.Unmarshal([]byte(string(result.Body)), &generations)
-	if err != nil {
-		return "", err
-	}
-	// Check for length of generations
-	if len(generations) != 1 {
-		return "", fmt.Errorf("Expected exactly one generation, but got %d", len(generations))
-	}
+//     log.Println("result body"+ string(result.Body))
 
-	// Access the content
-	content := generations[0].Generation.Content
-	return content, nil
+    err = json.Unmarshal([]byte(string(result.Body)), &generations)
+    if err != nil {
+        return "", err
+    }
+    // Check for length of generations
+    if len(generations) != 1 {
+        return "", fmt.Errorf("Expected exactly one generation, but got %d", len(generations))
+    }
+
+    // Access the content
+    content := generations[0].GeneratedText
+//     log.Println("content" + content)
+    return content, nil
 }
 
 func (a *SageMakerAIClient) Parse(ctx context.Context, prompt []string, cache cache.ICache, promptTmpl string) (string, error) {
